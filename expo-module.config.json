@@ -1,9 +1,6 @@
 {
-  "platforms": ["apple", "android", "web"],
+  "platforms": ["apple"],
   "apple": {
     "modules": ["TorchImagePlaygroundModule"]
-  },
-  "android": {
-    "modules": ["expo.modules.torchimageplayground.TorchImagePlaygroundModule"]
   }
 }

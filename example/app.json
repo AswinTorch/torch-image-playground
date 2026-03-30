@@ -13,20 +13,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "expo.modules.torchimageplayground.example"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false,
-      "package": "expo.modules.torchimageplayground.example"
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
+      "bundleIdentifier": "expo.modules.torchimageplayground.example",
+      "deploymentTarget": "18.2"
     }
   }
 }

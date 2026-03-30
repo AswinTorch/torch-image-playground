@@ -11,8 +11,7 @@ Pod::Spec.new do |s|
   s.author         = package['author']
   s.homepage       = package['homepage']
   s.platforms      = {
-    :ios => '15.1',
-    :tvos => '15.1'
+    :ios => '18.2'
   }
   s.swift_version  = '5.9'
   s.source         = { git: 'https://github.com/AswinTorch/torch-image-playground' }
@@ -20,7 +19,9 @@ Pod::Spec.new do |s|
 
   s.dependency 'ExpoModulesCore'
 
-  # Swift/Objective-C compatibility
+  # Weak link ImagePlayground framework (APIs gated at iOS 18.2+ in Swift)
+  s.weak_frameworks = ['ImagePlayground']
+
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
   }

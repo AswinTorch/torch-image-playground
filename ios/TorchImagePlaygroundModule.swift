@@ -1,48 +1,155 @@
 import ExpoModulesCore
+import UIKit
+
+#if canImport(ImagePlayground)
+import ImagePlayground
+#endif
 
 public class TorchImagePlaygroundModule: Module {
-  // Each module class must implement the definition function. The definition consists of components
-  // that describes the module's functionality and behavior.
-  // See https://docs.expo.dev/modules/module-api for more details about available components.
   public func definition() -> ModuleDefinition {
-    // Sets the name of the module that JavaScript code will use to refer to the module. Takes a string as an argument.
-    // Can be inferred from module's class name, but it's recommended to set it explicitly for clarity.
-    // The module will be accessible from `requireNativeModule('TorchImagePlayground')` in JavaScript.
     Name("TorchImagePlayground")
 
-    // Defines constant property on the module.
-    Constant("PI") {
-      Double.pi
+    // Check if device supports Image Playground
+    Function("isSupported") { () -> Bool in
+      #if canImport(ImagePlayground)
+      if #available(iOS 18.2, *) {
+        return ImagePlaygroundViewController.isAvailable
+      }
+      #endif
+      return false
     }
 
-    // Defines event names that the module can send to JavaScript.
-    Events("onChange")
-
-    // Defines a JavaScript synchronous function that runs the native code on the JavaScript thread.
-    Function("hello") {
-      return "Hello world! 👋"
-    }
-
-    // Defines a JavaScript function that always returns a Promise and whose native code
-    // is by default dispatched on the different thread than the JavaScript runtime runs on.
-    AsyncFunction("setValueAsync") { (value: String) in
-      // Send an event to JavaScript.
-      self.sendEvent("onChange", [
-        "value": value
-      ])
-    }
-
-    // Enables the module to be used as a native view. Definition components that are accepted as part of the
-    // view definition: Prop, Events.
-    View(TorchImagePlaygroundView.self) {
-      // Defines a setter for the `url` prop.
-      Prop("url") { (view: TorchImagePlaygroundView, url: URL) in
-        if view.webView.url != url {
-          view.webView.load(URLRequest(url: url))
-        }
+    // Launch Image Playground and return generated image URL
+    AsyncFunction("launchAsync") { (params: LaunchParams?) async throws -> String? in
+      #if canImport(ImagePlayground)
+      guard #available(iOS 18.2, *) else {
+        throw ImagePlaygroundError.unsupported
       }
 
-      Events("onLoad")
+      guard ImagePlaygroundViewController.isAvailable else {
+        throw ImagePlaygroundError.unsupported
+      }
+
+      return try await self.presentImagePlayground(params: params)
+      #else
+      throw ImagePlaygroundError.unsupported
+      #endif
+    }
+  }
+
+  #if canImport(ImagePlayground)
+  @available(iOS 18.2, *)
+  private func presentImagePlayground(params: LaunchParams?) async throws -> String? {
+    return try await withCheckedThrowingContinuation { continuation in
+      DispatchQueue.main.async {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else {
+          continuation.resume(throwing: ImagePlaygroundError.noViewController)
+          return
+        }
+
+        // Find the topmost presented view controller
+        var topController = rootViewController
+        while let presented = topController.presentedViewController {
+          topController = presented
+        }
+
+        let viewController = ImagePlaygroundViewController()
+
+        // Create delegate to handle callbacks
+        let delegate = ImagePlaygroundDelegate(
+          onComplete: { url in
+            topController.dismiss(animated: true)
+            continuation.resume(returning: url.path)
+          },
+          onCancel: {
+            topController.dismiss(animated: true)
+            continuation.resume(returning: nil)
+          }
+        )
+
+        // Store delegate to prevent deallocation
+        objc_setAssociatedObject(viewController, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+        viewController.delegate = delegate
+
+        // Configure concepts if provided
+        if let concepts = params?.concepts {
+          if let textConcepts = concepts.text {
+            for text in textConcepts {
+              viewController.concepts.append(.text(text))
+            }
+          } else if let content = concepts.content {
+            viewController.concepts.append(.extracted(from: content, title: concepts.title))
+          }
+        }
+
+        topController.present(viewController, animated: true)
+      }
+    }
+  }
+  #endif
+}
+
+// MARK: - Delegate Helper
+
+#if canImport(ImagePlayground)
+@available(iOS 18.2, *)
+private class ImagePlaygroundDelegate: NSObject, ImagePlaygroundViewController.Delegate {
+  private let onComplete: (URL) -> Void
+  private let onCancel: () -> Void
+  private var hasResumed = false
+
+  init(onComplete: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+    self.onComplete = onComplete
+    self.onCancel = onCancel
+    super.init()
+  }
+
+  func imagePlaygroundViewController(
+    _ imagePlaygroundViewController: ImagePlaygroundViewController,
+    didCreateImageAt imageURL: URL
+  ) {
+    guard !hasResumed else { return }
+    hasResumed = true
+    onComplete(imageURL)
+  }
+
+  func imagePlaygroundViewControllerDidCancel(
+    _ imagePlaygroundViewController: ImagePlaygroundViewController
+  ) {
+    guard !hasResumed else { return }
+    hasResumed = true
+    onCancel()
+  }
+}
+#endif
+
+// MARK: - Parameter Types
+
+struct ConceptsParams: Record {
+  @Field var text: [String]?
+  @Field var title: String?
+  @Field var content: String?
+}
+
+struct LaunchParams: Record {
+  @Field var concepts: ConceptsParams?
+}
+
+// MARK: - Error Types
+
+enum ImagePlaygroundError: Error {
+  case unsupported
+  case noViewController
+}
+
+extension ImagePlaygroundError: LocalizedError {
+  var errorDescription: String? {
+    switch self {
+    case .unsupported:
+      return "Image Playground is not available on this device. Requires iOS 18.2+ and iPhone 15 Pro or newer."
+    case .noViewController:
+      return "Could not find a view controller to present Image Playground."
     }
   }
 }
