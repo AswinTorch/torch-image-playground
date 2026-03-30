@@ -1,5 +1,8 @@
 # torch-image-playground
 
+[![npm version](https://img.shields.io/npm/v/torch-image-playground)](https://www.npmjs.com/package/torch-image-playground)
+[![npm downloads](https://img.shields.io/npm/dm/torch-image-playground)](https://www.npmjs.com/package/torch-image-playground)
+
 Apple [Image Playground](https://developer.apple.com/documentation/imageplayground) for Expo on **iOS** — launch the system Image Playground UI and receive a **local file path** to the generated image (or `null` if the user cancels).
 
 ## Platform support
