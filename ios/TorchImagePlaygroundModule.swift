@@ -42,28 +42,21 @@ public class TorchImagePlaygroundModule: Module {
   private func presentImagePlayground(params: LaunchParams?) async throws -> String? {
     return try await withCheckedThrowingContinuation { continuation in
       DispatchQueue.main.async {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first?.rootViewController else {
+        guard let topController = self.resolveTopViewController() else {
           continuation.resume(throwing: ImagePlaygroundError.noViewController)
           return
         }
 
-        // Find the topmost presented view controller
-        var topController = rootViewController
-        while let presented = topController.presentedViewController {
-          topController = presented
-        }
-
         let viewController = ImagePlaygroundViewController()
+        viewController.modalPresentationStyle = .pageSheet
+        viewController.isModalInPresentation = false
 
         // Create delegate to handle callbacks
         let delegate = ImagePlaygroundDelegate(
           onComplete: { url in
-            topController.dismiss(animated: true)
             continuation.resume(returning: url.path)
           },
           onCancel: {
-            topController.dismiss(animated: true)
             continuation.resume(returning: nil)
           }
         )
@@ -86,6 +79,22 @@ public class TorchImagePlaygroundModule: Module {
         topController.present(viewController, animated: true)
       }
     }
+  }
+
+  private func resolveTopViewController() -> UIViewController? {
+    if let top = appContext?.utilities?.currentViewController() {
+      return top
+    }
+    guard let windowScene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive })
+        ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+      var top = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController
+        ?? windowScene.windows.first?.rootViewController else {
+      return nil
+    }
+    while let presented = top.presentedViewController, !presented.isBeingDismissed {
+      top = presented
+    }
+    return top
   }
   #endif
 }
@@ -111,6 +120,7 @@ private class ImagePlaygroundDelegate: NSObject, ImagePlaygroundViewController.D
   ) {
     guard !hasResumed else { return }
     hasResumed = true
+    imagePlaygroundViewController.dismiss(animated: true)
     onComplete(imageURL)
   }
 
@@ -119,6 +129,7 @@ private class ImagePlaygroundDelegate: NSObject, ImagePlaygroundViewController.D
   ) {
     guard !hasResumed else { return }
     hasResumed = true
+    imagePlaygroundViewController.dismiss(animated: true)
     onCancel()
   }
 }
