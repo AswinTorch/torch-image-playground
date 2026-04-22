@@ -1,4 +1,6 @@
-import TorchImagePlayground from "torch-image-playground";
+import TorchImagePlayground, {
+  type ImagePlaygroundParams,
+} from "torch-image-playground";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -29,27 +31,43 @@ function AppContent() {
   const supported =
     Platform.OS === "ios" ? TorchImagePlayground.isSupported() : false;
 
-  const onLaunch = useCallback(async () => {
-    if (!supported || busy) return;
-    setBusy(true);
-    setStatus("Opening Image Playground…");
-    try {
-      const path = await TorchImagePlayground.launchAsync({
-        concepts: { text: ["minimal", "abstract", "gradient"] },
-      });
-      setStatus(
-        path != null
-          ? `Saved image path:\n${path}`
-          : "Cancelled or no image returned."
-      );
-    } catch (e) {
-      setStatus(
-        `Error: ${e instanceof Error ? e.message : String(e)}`
-      );
-    } finally {
-      setBusy(false);
-    }
-  }, [supported, busy]);
+  const runLaunch = useCallback(
+    async (label: string, params?: ImagePlaygroundParams) => {
+      if (!supported || busy) return;
+      setBusy(true);
+      setStatus(`${label}…`);
+      try {
+        const path = await TorchImagePlayground.launchAsync(params);
+        setStatus(
+          path != null
+            ? `${label} — saved path:\n${path}`
+            : `${label} — cancelled or no image.`,
+        );
+      } catch (e) {
+        setStatus(
+          `${label} — error: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [supported, busy],
+  );
+
+  const onLaunchBasic = useCallback(() => {
+    void runLaunch("Basic", {
+      concepts: { text: ["minimal", "abstract", "gradient"] },
+    });
+  }, [runLaunch]);
+
+  const onLaunchStyles = useCallback(() => {
+    void runLaunch("Styles + policy", {
+      concepts: { text: ["cozy", "interior"] },
+      allowedStyles: ["illustration", "sketch", "animation"],
+      selectedStyle: "illustration",
+      personalizationPolicy: "automatic",
+    });
+  }, [runLaunch]);
 
   if (Platform.OS !== "ios") {
     return (
@@ -72,8 +90,15 @@ function AppContent() {
         </Text>
         <View style={styles.row}>
           <Button
-            title={busy ? "Working…" : "Launch Image Playground"}
-            onPress={onLaunch}
+            title={busy ? "Working…" : "Launch (concepts only)"}
+            onPress={onLaunchBasic}
+            disabled={!supported || busy}
+          />
+        </View>
+        <View style={styles.row}>
+          <Button
+            title={busy ? "Working…" : "Launch (styles + personalization)"}
+            onPress={onLaunchStyles}
             disabled={!supported || busy}
           />
         </View>
@@ -110,7 +135,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   row: {
-    gap: 12,
+    marginBottom: 12,
   },
   spinner: {
     marginTop: 16,

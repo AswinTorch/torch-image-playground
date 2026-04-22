@@ -16,9 +16,11 @@ declare class TorchImagePlaygroundModule extends NativeModule<TorchImagePlaygrou
 
   /**
    * Launch Image Playground and return the generated image file path.
-   * @param params - Optional parameters for source image and concepts
+   * @param params - Optional `concepts`, `sourceUri` (https or absolute path), `allowedStyles` /
+   *   `selectedStyle` (see Apple’s `ImagePlaygroundStyle`), and `personalizationPolicy`.
    * @returns File path of generated image, or null if user cancelled
-   * @throws Error if Image Playground is not supported on this device
+   * @throws Error if unsupported, no presenter, invalid style/policy, bad style combination
+   *   (`selectedStyle` must appear in `allowedStyles` when both are set), or source image load failed
    */
   launchAsync(params?: ImagePlaygroundParams): Promise<ImagePlaygroundResult>;
 }

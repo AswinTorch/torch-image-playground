@@ -24,11 +24,49 @@ export type ContentConcept = {
 export type ImagePlaygroundConcepts = TextConcept | ContentConcept;
 
 /**
+ * Generation styles for Image Playground (maps to Apple’s `ImagePlaygroundStyle`).
+ * @see https://developer.apple.com/documentation/imageplayground/imageplaygroundstyle
+ */
+export type ImagePlaygroundStyleName =
+  | "animation"
+  | "illustration"
+  | "sketch"
+  | "all";
+
+/**
+ * Personalization behavior for the system UI (maps to `ImagePlaygroundPersonalizationPolicy`).
+ * @see https://developer.apple.com/documentation/imageplayground/imageplaygroundpersonalizationpolicy
+ */
+export type ImagePlaygroundPersonalizationPolicyName =
+  | "automatic"
+  | "enabled"
+  | "disabled";
+
+/**
  * Parameters for launching Image Playground.
  */
 export type ImagePlaygroundParams = {
   /** Concepts for AI generation guidance */
   concepts?: ImagePlaygroundConcepts;
+  /**
+   * Optional source image: `https://` / `http://` URL (downloaded before present) or
+   * absolute filesystem path (with or without `file://`).
+   */
+  sourceUri?: string;
+  /**
+   * Styles the user may choose in the playground. Must include `selectedStyle` when both are set.
+   * @see https://developer.apple.com/documentation/imageplayground/imageplaygroundviewcontroller/allowedgenerationstyles
+   */
+  allowedStyles?: ImagePlaygroundStyleName[];
+  /**
+   * Pre-selected style. If `allowedStyles` is omitted, allowed list defaults to `[selectedStyle]`.
+   * @see https://developer.apple.com/documentation/imageplayground/imageplaygroundviewcontroller/selectedgenerationstyle
+   */
+  selectedStyle?: ImagePlaygroundStyleName;
+  /**
+   * Personalization policy for generated images. Omit for system default.
+   */
+  personalizationPolicy?: ImagePlaygroundPersonalizationPolicyName;
 };
 
 /**

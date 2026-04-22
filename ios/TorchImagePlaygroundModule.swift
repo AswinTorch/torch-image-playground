@@ -9,7 +9,6 @@ public class TorchImagePlaygroundModule: Module {
   public func definition() -> ModuleDefinition {
     Name("TorchImagePlayground")
 
-    // Check if device supports Image Playground
     Function("isSupported") { () -> Bool in
       #if canImport(ImagePlayground)
       if #available(iOS 18.2, *) {
@@ -19,7 +18,6 @@ public class TorchImagePlaygroundModule: Module {
       return false
     }
 
-    // Launch Image Playground and return generated image URL
     AsyncFunction("launchAsync") { (params: LaunchParams?) async throws -> String? in
       #if canImport(ImagePlayground)
       guard #available(iOS 18.2, *) else {
@@ -40,44 +38,166 @@ public class TorchImagePlaygroundModule: Module {
   #if canImport(ImagePlayground)
   @available(iOS 18.2, *)
   private func presentImagePlayground(params: LaunchParams?) async throws -> String? {
-    return try await withCheckedThrowingContinuation { continuation in
-      DispatchQueue.main.async {
-        guard let topController = self.resolveTopViewController() else {
-          continuation.resume(throwing: ImagePlaygroundError.noViewController)
-          return
+    let sourceUIImage: UIImage?
+    if let uri = params?.sourceUri?.trimmingCharacters(in: .whitespacesAndNewlines), !uri.isEmpty {
+      sourceUIImage = try await Self.loadSourceImage(from: uri)
+    } else {
+      sourceUIImage = nil
+    }
+
+    return try await presentOnMainActor(params: params, sourceImage: sourceUIImage)
+  }
+
+  @MainActor
+  @available(iOS 18.2, *)
+  private func presentOnMainActor(params: LaunchParams?, sourceImage: UIImage?) async throws -> String? {
+    guard let topController = resolveTopViewController() else {
+      throw ImagePlaygroundError.noViewController
+    }
+
+    let viewController = ImagePlaygroundViewController()
+    viewController.modalPresentationStyle = .pageSheet
+    viewController.isModalInPresentation = false
+
+    if let sourceImage = sourceImage {
+      viewController.sourceImage = sourceImage
+    }
+
+    try applyGenerationStyles(to: viewController, params: params)
+
+    if let policy = params?.personalizationPolicy?.trimmingCharacters(in: .whitespacesAndNewlines), !policy.isEmpty {
+      viewController.personalizationPolicy = try Self.parsePersonalizationPolicy(policy)
+    }
+
+    if let concepts = params?.concepts {
+      if let textConcepts = concepts.text {
+        for text in textConcepts {
+          viewController.concepts.append(.text(text))
         }
-
-        let viewController = ImagePlaygroundViewController()
-        viewController.modalPresentationStyle = .pageSheet
-        viewController.isModalInPresentation = false
-
-        // Create delegate to handle callbacks
-        let delegate = ImagePlaygroundDelegate(
-          onComplete: { url in
-            continuation.resume(returning: url.path)
-          },
-          onCancel: {
-            continuation.resume(returning: nil)
-          }
-        )
-
-        // Store delegate to prevent deallocation
-        objc_setAssociatedObject(viewController, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
-        viewController.delegate = delegate
-
-        // Configure concepts if provided
-        if let concepts = params?.concepts {
-          if let textConcepts = concepts.text {
-            for text in textConcepts {
-              viewController.concepts.append(.text(text))
-            }
-          } else if let content = concepts.content {
-            viewController.concepts.append(.extracted(from: content, title: concepts.title))
-          }
-        }
-
-        topController.present(viewController, animated: true)
+      } else if let content = concepts.content {
+        viewController.concepts.append(.extracted(from: content, title: concepts.title))
       }
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+      let delegate = ImagePlaygroundDelegate(
+        onComplete: { url in
+          continuation.resume(returning: url.path)
+        },
+        onCancel: {
+          continuation.resume(returning: nil)
+        }
+      )
+
+      objc_setAssociatedObject(viewController, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+      viewController.delegate = delegate
+
+      topController.present(viewController, animated: true)
+    }
+  }
+
+  @MainActor
+  @available(iOS 18.2, *)
+  private func applyGenerationStyles(to vc: ImagePlaygroundViewController, params: LaunchParams?) throws {
+    let allowedStrings = params?.allowedStyles
+    let selectedString = params?.selectedStyle
+
+    let allowedParsed: [ImagePlaygroundStyle]?
+    if let s = allowedStrings, !s.isEmpty {
+      allowedParsed = try s.map { try Self.parseStyle($0) }
+    } else {
+      allowedParsed = nil
+    }
+
+    let selectedParsed: ImagePlaygroundStyle?
+    if let s = selectedString?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+      selectedParsed = try Self.parseStyle(s)
+    } else {
+      selectedParsed = nil
+    }
+
+    switch (allowedParsed, selectedParsed) {
+    case (nil, nil):
+      break
+    case (let allowed?, nil):
+      vc.allowedGenerationStyles = allowed
+    case (nil, let selected?):
+      vc.allowedGenerationStyles = [selected]
+      vc.selectedGenerationStyle = selected
+    case (let allowed?, let selected?):
+      let selectedId = selected.id
+      guard allowed.contains(where: { $0.id == selectedId }) else {
+        throw ImagePlaygroundError.invalidStyleSelection
+      }
+      vc.allowedGenerationStyles = allowed
+      vc.selectedGenerationStyle = selected
+    }
+  }
+
+  private nonisolated static func loadSourceImage(from uri: String) async throws -> UIImage {
+    let trimmed = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if trimmed.hasPrefix("/"), !trimmed.contains("://") {
+      guard let image = UIImage(contentsOfFile: trimmed) else {
+        throw ImagePlaygroundError.sourceImageLoadFailed
+      }
+      return image
+    }
+
+    if trimmed.lowercased().hasPrefix("file://") {
+      guard let url = URL(string: trimmed), let image = UIImage(contentsOfFile: url.path) else {
+        throw ImagePlaygroundError.sourceImageLoadFailed
+      }
+      return image
+    }
+
+    guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
+      throw ImagePlaygroundError.sourceImageLoadFailed
+    }
+
+    if scheme == "file" {
+      guard let image = UIImage(contentsOfFile: url.path) else {
+        throw ImagePlaygroundError.sourceImageLoadFailed
+      }
+      return image
+    }
+
+    guard scheme == "http" || scheme == "https" else {
+      throw ImagePlaygroundError.sourceImageLoadFailed
+    }
+
+    let (data, _) = try await URLSession.shared.data(from: url)
+    guard let image = UIImage(data: data), image.size.width > 0 else {
+      throw ImagePlaygroundError.sourceImageLoadFailed
+    }
+    return image
+  }
+
+  private nonisolated static func parseStyle(_ raw: String) throws -> ImagePlaygroundStyle {
+    switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "animation":
+      return .animation
+    case "illustration":
+      return .illustration
+    case "sketch":
+      return .sketch
+    case "all":
+      return .all
+    default:
+      throw ImagePlaygroundError.invalidStyle(raw)
+    }
+  }
+
+  private nonisolated static func parsePersonalizationPolicy(_ raw: String) throws -> ImagePlaygroundPersonalizationPolicy {
+    switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "automatic":
+      return .automatic
+    case "enabled":
+      return .enabled
+    case "disabled":
+      return .disabled
+    default:
+      throw ImagePlaygroundError.invalidPersonalizationPolicy(raw)
     }
   }
 
@@ -98,8 +218,6 @@ public class TorchImagePlaygroundModule: Module {
   }
   #endif
 }
-
-// MARK: - Delegate Helper
 
 #if canImport(ImagePlayground)
 @available(iOS 18.2, *)
@@ -135,8 +253,6 @@ private class ImagePlaygroundDelegate: NSObject, ImagePlaygroundViewController.D
 }
 #endif
 
-// MARK: - Parameter Types
-
 struct ConceptsParams: Record {
   @Field var text: [String]?
   @Field var title: String?
@@ -145,22 +261,36 @@ struct ConceptsParams: Record {
 
 struct LaunchParams: Record {
   @Field var concepts: ConceptsParams?
+  @Field var sourceUri: String?
+  @Field var allowedStyles: [String]?
+  @Field var selectedStyle: String?
+  @Field var personalizationPolicy: String?
 }
-
-// MARK: - Error Types
 
 enum ImagePlaygroundError: Error {
   case unsupported
   case noViewController
+  case sourceImageLoadFailed
+  case invalidStyle(String)
+  case invalidPersonalizationPolicy(String)
+  case invalidStyleSelection
 }
 
 extension ImagePlaygroundError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .unsupported:
-      return "Image Playground is not available on this device. Requires iOS 18.2+ and iPhone 15 Pro or newer."
+      return "Image Playground is not available on this device. Requires iOS 18.2+ and supported hardware."
     case .noViewController:
       return "Could not find a view controller to present Image Playground."
+    case .sourceImageLoadFailed:
+      return "Could not load the source image from the given URI (use https URL or an absolute file path)."
+    case .invalidStyle(let raw):
+      return "Invalid Image Playground style \"\(raw)\". Use animation, illustration, sketch, or all."
+    case .invalidPersonalizationPolicy(let raw):
+      return "Invalid personalization policy \"\(raw)\". Use automatic, enabled, or disabled."
+    case .invalidStyleSelection:
+      return "selectedStyle must be included in allowedStyles when both are set."
     }
   }
 }

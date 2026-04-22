@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/torch-image-playground)](https://www.npmjs.com/package/torch-image-playground)
 [![npm downloads](https://img.shields.io/npm/dm/torch-image-playground)](https://www.npmjs.com/package/torch-image-playground)
 
-Expo-friendly bridge to Apple’s [Image Playground](https://developer.apple.com/documentation/imageplayground) on **iOS**: present the system sheet, let people generate an image, and receive a **local file path** when they’re done, or `null` if they bail. No custom image model required on your side.
+Expo-friendly bridge to Apple’s [Image Playground](https://developer.apple.com/documentation/imageplayground) on **iOS**: present the system sheet, optionally pass a **source image** and **style / personalization** settings, then receive a **local file path** when they’re done, or `null` if they bail.
 
 ## Platform support
 
@@ -61,6 +61,27 @@ try {
 ```
 
 **Concepts:** pass `{ text: string[] }` for keyword-style hints, or `{ content: string; title?: string }` for extraction-based guidance (see types).
+
+### Source image, styles, personalization
+
+These map to [`sourceImage`](https://developer.apple.com/documentation/imageplayground/imageplaygroundviewcontroller/sourceimage), [`allowedGenerationStyles`](https://developer.apple.com/documentation/imageplayground/imageplaygroundviewcontroller/allowedgenerationstyles) / [`selectedGenerationStyle`](https://developer.apple.com/documentation/imageplayground/imageplaygroundviewcontroller/selectedgenerationstyle), and [`personalizationPolicy`](https://developer.apple.com/documentation/imageplayground/imageplaygroundviewcontroller/personalizationpolicy) on `ImagePlaygroundViewController`.
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `sourceUri` | `string` (optional) | **`https`/`http` URL** (downloaded before the sheet opens) or **absolute filesystem path** (with or without `file://`). Invalid schemes or failed loads throw. |
+| `allowedStyles` | `("animation" \| "illustration" \| "sketch" \| "all")[]` (optional) | Subset of styles the user may pick. |
+| `selectedStyle` | same union (optional) | Pre-selected style. If you omit `allowedStyles`, it defaults to **`[selectedStyle]`**. If you pass **both**, `selectedStyle` must be included in `allowedStyles` (Apple’s rule). |
+| `personalizationPolicy` | `"automatic" \| "enabled" \| "disabled"` (optional) | Omit to keep the system default. |
+
+```ts
+await TorchImagePlayground.launchAsync({
+  concepts: { text: ["portrait", "warm light"] },
+  allowedStyles: ["illustration", "sketch"],
+  selectedStyle: "illustration",
+  personalizationPolicy: "automatic",
+  // sourceUri: "https://example.com/photo.jpg",
+});
+```
 
 ## Example app
 
